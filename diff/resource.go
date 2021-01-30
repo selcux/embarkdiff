@@ -15,6 +15,10 @@ type Resource struct {
 	Target string `json:"target"`
 }
 
+func (r *Resource) Validate() bool {
+	return r.Source != "" && r.Target != ""
+}
+
 func (r *Resource) Write() error {
 	buffer, err := json.Marshal(r)
 	if err != nil {

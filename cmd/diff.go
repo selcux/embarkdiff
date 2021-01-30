@@ -16,36 +16,42 @@ limitations under the License.
 package cmd
 
 import (
+	"encoding/hex"
+	"errors"
 	"fmt"
 
+	"github.com/selcux/embarkdiff/diff"
 	"github.com/spf13/cobra"
 )
 
 // diffCmd represents the diff command
 var diffCmd = &cobra.Command{
 	Use:   "diff",
-	Short: "A brief description of your command",
-	Long: `A longer description that spans multiple lines and likely contains examples
-and usage of using your command. For example:
+	Short: "Compares given directories",
+	Long:  `Compares given contents of the given directories`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		res, err := diff.Read()
+		if err != nil {
+			return err
+		}
 
-Cobra is a CLI library for Go that empowers applications.
-This application is a tool to generate the needed files
-to quickly create a Cobra application.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("diff called")
+		if !res.Validate() {
+			return errors.New("`source` and `target` are required")
+		}
+
+		dirInfo, err := diff.NewDirInfo(res.Source)
+		if err != nil {
+			return err
+		}
+
+		for k, v := range dirInfo.Files {
+			fmt.Println(k, hex.EncodeToString(v))
+		}
+
+		return nil
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(diffCmd)
-
-	// Here you will define your flags and configuration settings.
-
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// diffCmd.PersistentFlags().String("foo", "", "A help for foo")
-
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// diffCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
 }
