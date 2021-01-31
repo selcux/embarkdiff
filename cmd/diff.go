@@ -23,10 +23,18 @@ var diffCmd = &cobra.Command{
 			return errors.New("`source` and `target` are required")
 		}
 
-		err = diff.ExecuteChecksum(res.Source())
+		sourceChan, err := diff.ExecuteChecksum(res.Source())
 		if err != nil {
 			return err
 		}
+
+		targetChan, err := diff.ExecuteChecksum(res.Target())
+		if err != nil {
+			return err
+		}
+
+		diff.Compare(&diff.DirWithChannel{sourceChan, res.Source()},
+			&diff.DirWithChannel{targetChan, res.Target()})
 
 		return nil
 	},

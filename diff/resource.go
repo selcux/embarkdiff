@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/selcux/embarkdiff/util"
 	"io/ioutil"
 	"os"
-	"os/user"
 	"path"
 )
 
@@ -59,7 +59,7 @@ func (r *Resource) Write() error {
 		return err
 	}
 
-	resFile, err := resourcePath(resourceFile)
+	resFile, err := r.resourcePath()
 	if err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func (r *Resource) Write() error {
 }
 
 func (r *Resource) Load() error {
-	resFile, err := resourcePath(resourceFile)
+	resFile, err := r.resourcePath()
 	if err != nil {
 		return err
 	}
@@ -87,17 +87,8 @@ func (r *Resource) Load() error {
 	return err
 }
 
-func homeDirectory() (string, error) {
-	usr, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-
-	return usr.HomeDir, nil
-}
-
-func resourcePath(resFile string) (string, error) {
-	homeDir, err := homeDirectory()
+func (r *Resource) resourcePath() (string, error) {
+	homeDir, err := util.HomeDirectory()
 	if err != nil {
 		return "", err
 	}
@@ -105,21 +96,12 @@ func resourcePath(resFile string) (string, error) {
 	return path.Join(homeDir, resourceFile), nil
 }
 
-func dirExists(dir string) (bool, error) {
-	info, err := os.Stat(dir)
-	if err != nil {
-		return false, err
-	}
-
-	return os.IsExist(err) && info.IsDir(), nil
-}
-
 func setDir(dir string, resField *string) error {
 	if resField == nil {
 		return errors.New("resource field cannot be nil")
 	}
 
-	exists, err := dirExists(dir)
+	exists, err := util.DirExists(dir)
 	if err != nil {
 		return err
 	}

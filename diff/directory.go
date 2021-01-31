@@ -3,7 +3,6 @@ package diff
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
 	"io"
 	"log"
 	"os"
@@ -13,33 +12,28 @@ import (
 
 const dirKey string = "__dir__"
 
-type pair struct {
+type checksumInfo struct {
 	file     string
 	checksum string
 }
 
-func ExecuteChecksum(dir string) error {
+func ExecuteChecksum(dir string) (<-chan checksumInfo, error) {
 	entities, err := getEntities(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	files, err := batchChecksum(entities)
-	if err != nil {
-		return err
-	}
-
-	for k, v := range files {
-		fmt.Println(k, v)
-	}
-
-	return nil
+	return streamChecksum(entities)
 }
 
 func getEntities(dir string) (map[string]string, error) {
 	entities := make(map[string]string)
 
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if dir == path {
+			return nil
+		}
+
 		entities[path] = ""
 
 		if info.IsDir() {
@@ -69,14 +63,62 @@ func checksum(file string) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
+func streamChecksum(entities map[string]string) (<-chan checksumInfo, error) {
+	//This is the maximum number of concurrent file operations
+	var MaxCount = 50
+	var maxGoroutines = make(chan struct{}, MaxCount)
+
+	chksum := make(chan checksumInfo)
+	var wg sync.WaitGroup
+	wg.Add(len(entities))
+
+	for k, v := range entities {
+		p1 := &checksumInfo{k, v}
+
+		go func(p2 *checksumInfo) {
+			defer wg.Done()
+
+			//This limits the maximum number of concurrent file operations
+			// to revent `too many open files` error
+			maxGoroutines <- struct{}{}
+			defer func() { <-maxGoroutines }()
+
+			if p2.checksum == dirKey {
+				chksum <- *p2
+				return
+			}
+
+			check, err := checksum(p2.file)
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			chksum <- checksumInfo{
+				file:     p2.file,
+				checksum: hex.EncodeToString(check),
+			}
+		}(p1)
+	}
+	go func() {
+		wg.Wait()
+		close(chksum)
+	}()
+
+	return chksum, nil
+}
+
 func batchChecksum(entities map[string]string) (map[string]string, error) {
-	chksum := make(chan pair, 4)
-	quit := make(chan struct{}, 0)
+	//This is the maximum number of concurrent file operations
+	var MaxCount = 50
+	var maxGoroutines = make(chan struct{}, MaxCount)
+
+	chksum := make(chan checksumInfo)
+	quit := make(chan struct{})
 	fmap := make(map[string]string)
 	var smap sync.Map
 	var wg sync.WaitGroup
 
-	computeChecksum(chksum, &wg, entities)
+	computeChecksum(chksum, maxGoroutines, &wg, entities)
 	go waitChecksum(chksum, quit, &smap)
 
 	wg.Wait()
@@ -92,17 +134,22 @@ func batchChecksum(entities map[string]string) (map[string]string, error) {
 	return fmap, nil
 }
 
-func computeChecksum(chksum chan pair, wg *sync.WaitGroup, entities map[string]string) {
+func computeChecksum(chksum chan checksumInfo, maxGoroutines chan struct{}, wg *sync.WaitGroup, entities map[string]string) {
 	for k, v := range entities {
 		wg.Add(1)
 
-		p1 := &pair{k, v}
+		p1 := &checksumInfo{k, v}
 
-		go func(p2 *pair, sum chan pair, wgroup *sync.WaitGroup) {
+		go func(p2 *checksumInfo) {
 			defer wg.Done()
 
+			//This limits the maximum number of concurrent file operations
+			// to revent `too many open files` error
+			maxGoroutines <- struct{}{}
+			defer func() { <-maxGoroutines }()
+
 			if p2.checksum == dirKey {
-				sum <- *p2
+				chksum <- *p2
 				return
 			}
 
@@ -111,22 +158,20 @@ func computeChecksum(chksum chan pair, wg *sync.WaitGroup, entities map[string]s
 				log.Fatalln(err)
 			}
 
-			sum <- pair{
+			chksum <- checksumInfo{
 				file:     p2.file,
 				checksum: hex.EncodeToString(check),
 			}
-		}(p1, chksum, wg)
+		}(p1)
 	}
 }
 
-func waitChecksum(chksum chan pair, quit chan struct{}, smap *sync.Map) {
+func waitChecksum(chksum chan checksumInfo, quit chan struct{}, smap *sync.Map) {
 	for {
 		select {
 		case p := <-chksum:
-			fmt.Println(p.file, p.checksum)
 			smap.Store(p.file, p.checksum)
 		case <-quit:
-			fmt.Println("goto exit")
 			return
 		}
 	}
