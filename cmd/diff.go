@@ -16,9 +16,7 @@ limitations under the License.
 package cmd
 
 import (
-	"encoding/hex"
 	"errors"
-	"fmt"
 
 	"github.com/selcux/embarkdiff/diff"
 	"github.com/spf13/cobra"
@@ -39,13 +37,9 @@ var diffCmd = &cobra.Command{
 			return errors.New("`source` and `target` are required")
 		}
 
-		dirInfo, err := diff.NewDirInfo(res.Source)
+		err = diff.ExecuteChecksum(res.Source)
 		if err != nil {
 			return err
-		}
-
-		for k, v := range dirInfo.Files {
-			fmt.Println(k, hex.EncodeToString(v))
 		}
 
 		return nil

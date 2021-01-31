@@ -2,6 +2,8 @@ package diff
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -9,45 +11,48 @@ import (
 	"sync"
 )
 
-type DirInfo struct {
-	Directories []string
-	Files       map[string][]byte
+const dirKey string = "__dir__"
+
+type pair struct {
+	file     string
+	checksum string
 }
 
-func NewDirInfo(root string) (*DirInfo, error) {
-	dirs, files, err := getFiles(root)
+func ExecuteChecksum(dir string) error {
+	entities, err := getEntities(dir)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	fmap, err := batchChecksum(files)
+	files, err := batchChecksum(entities)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	return &DirInfo{
-		Directories: dirs,
-		Files:       fmap,
-	}, nil
+	for k, v := range files {
+		fmt.Println(k, v)
+	}
+
+	return nil
 }
 
-func getFiles(dir string) ([]string, []string, error) {
-	files := make([]string, 0)
-	dirs := make([]string, 0)
+func getEntities(dir string) (map[string]string, error) {
+	entities := make(map[string]string)
 
 	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		entities[path] = ""
+
 		if info.IsDir() {
-			dirs = append(dirs, path)
-		} else {
-			files = append(files, path)
+			entities[path] = dirKey
 		}
+
 		return nil
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return dirs, files, nil
+	return entities, nil
 }
 
 func checksum(file string) ([]byte, error) {
@@ -62,38 +67,67 @@ func checksum(file string) ([]byte, error) {
 	_, err = io.Copy(h, f)
 
 	return h.Sum(nil), nil
-
 }
 
-func batchChecksum(files []string) (map[string][]byte, error) {
-	var wg sync.WaitGroup
-	fmap := make(map[string][]byte)
-	wg.Add(len(files))
+func batchChecksum(entities map[string]string) (map[string]string, error) {
+	chksum := make(chan pair, 4)
+	quit := make(chan struct{}, 0)
+	fmap := make(map[string]string)
 	var smap sync.Map
+	var wg sync.WaitGroup
 
-	for _, file := range files {
-		go func(f string) {
-			sum, err := checksum(f)
+	computeChecksum(chksum, &wg, entities)
+	go waitChecksum(chksum, quit, &smap)
+
+	wg.Wait()
+	close(quit)
+
+	smap.Range(func(key, value interface{}) bool {
+		k := key.(string)
+		v := value.(string)
+		fmap[k] = string(v)
+		return true
+	})
+
+	return fmap, nil
+}
+
+func computeChecksum(chksum chan pair, wg *sync.WaitGroup, entities map[string]string) {
+	for k, v := range entities {
+		wg.Add(1)
+
+		p1 := &pair{k, v}
+
+		go func(p2 *pair, sum chan pair, wgroup *sync.WaitGroup) {
+			defer wg.Done()
+
+			if p2.checksum == dirKey {
+				sum <- *p2
+				return
+			}
+
+			check, err := checksum(p2.file)
 			if err != nil {
 				log.Fatalln(err)
 			}
 
-			// fmap[f] = sum
-			smap.Store(f, sum)
-			wg.Done()
-
-		}(file)
+			sum <- pair{
+				file:     p2.file,
+				checksum: hex.EncodeToString(check),
+			}
+		}(p1, chksum, wg)
 	}
+}
 
-	wg.Wait()
-
-	smap.Range(func(key, value interface{}) bool {
-		k := key.(string)
-		v := value.([]byte)
-		fmap[k] = v
-
-		return false
-	})
-
-	return fmap, nil
+func waitChecksum(chksum chan pair, quit chan struct{}, smap *sync.Map) {
+	for {
+		select {
+		case p := <-chksum:
+			fmt.Println(p.file, p.checksum)
+			smap.Store(p.file, p.checksum)
+		case <-quit:
+			fmt.Println("goto exit")
+			return
+		}
+	}
 }
