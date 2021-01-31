@@ -2,6 +2,8 @@ package diff
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io/ioutil"
 	"os"
 	"os/user"
@@ -10,13 +12,45 @@ import (
 
 const resourceFile string = "embarkdiff.json"
 
+type ResourceInterface interface {
+	Validate() bool
+	Write() error
+	Load() error
+
+	Source() string
+	SetSource(dir string) error
+
+	Target() string
+	SetTarget(dir string) error
+}
+
 type Resource struct {
-	Source string `json:"source"`
-	Target string `json:"target"`
+	source string
+	target string
+}
+
+func NewResource() ResourceInterface {
+	return &Resource{}
+}
+
+func (r *Resource) Source() string {
+	return r.source
+}
+
+func (r *Resource) SetSource(dir string) error {
+	return setDir(dir, &r.source)
+}
+
+func (r *Resource) Target() string {
+	return r.target
+}
+
+func (r *Resource) SetTarget(dir string) error {
+	return setDir(dir, &r.target)
 }
 
 func (r *Resource) Validate() bool {
-	return r.Source != "" && r.Target != ""
+	return r.source != "" && r.target != ""
 }
 
 func (r *Resource) Write() error {
@@ -33,25 +67,24 @@ func (r *Resource) Write() error {
 	return ioutil.WriteFile(resFile, buffer, 0644)
 }
 
-func Read() (*Resource, error) {
+func (r *Resource) Load() error {
 	resFile, err := resourcePath(resourceFile)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	_, err = os.Stat(resFile)
 	if os.IsNotExist(err) {
-		return new(Resource), nil
+		return nil
 	}
 
 	buffer, err := ioutil.ReadFile(resFile)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	resource := new(Resource)
-	err = json.Unmarshal(buffer, resource)
-	return resource, err
+	err = json.Unmarshal(buffer, r)
+	return err
 }
 
 func homeDirectory() (string, error) {
@@ -79,4 +112,23 @@ func dirExists(dir string) (bool, error) {
 	}
 
 	return os.IsExist(err) && info.IsDir(), nil
+}
+
+func setDir(dir string, resField *string) error {
+	if resField == nil {
+		return errors.New("resource field cannot be nil")
+	}
+
+	exists, err := dirExists(dir)
+	if err != nil {
+		return err
+	}
+
+	if !exists {
+		return fmt.Errorf("directory %s does not exists", dir)
+	}
+
+	*resField = dir
+
+	return nil
 }
