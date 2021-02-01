@@ -37,8 +37,8 @@ var addCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(addCmd)
 
-	addCmd.Flags().StringVarP(&source, "source", "", "", "Source directory to read from.")
-	addCmd.Flags().StringVarP(&target, "target", "", "", "Target directory to read from.")
+	addCmd.Flags().StringVarP(&source, "source", "", "", "Source directory path")
+	addCmd.Flags().StringVarP(&target, "target", "", "", "Target directory path")
 }
 
 //addSource to the resource file
