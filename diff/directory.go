@@ -1,7 +1,6 @@
 package diff
 
 import (
-	"context"
 	"crypto/sha256"
 	"io"
 	"os"
@@ -9,25 +8,28 @@ import (
 	"sync"
 )
 
-const dirKey string = "__dir__"
-
+//FileData keeps the path and whether the path is a directory or not
 type FileData struct {
 	Path  string
 	IsDir bool
 }
 
+//ChecksumInfo embeds the FileData and includes the checksum data for the related file.
+//If the path is a directory Checksum is nil.
 type ChecksumInfo struct {
 	FileData
 	Checksum []byte
 }
 
-func ExecuteChecksum(ctx context.Context, root string, errCh chan<- error) <-chan ChecksumInfo {
-	entitiesCh := entities(ctx, root, errCh)
+//ExecuteChecksum takes the rood directory and returns the checksum info of its files
+func ExecuteChecksum(root string, errCh chan<- error) <-chan ChecksumInfo {
+	entitiesCh := entities(root, errCh)
 
-	return streamChecksum(ctx, entitiesCh, errCh, root)
+	return streamChecksum(entitiesCh, errCh, root)
 }
 
-func entities(ctx context.Context, root string, errCh chan<- error) <-chan FileData {
+//entities traverse through the given directory and returns a channel where the path of the every file/subfolder is sent
+func entities(root string, errCh chan<- error) <-chan FileData {
 	paths := make(chan FileData)
 
 	go func() {
@@ -42,11 +44,7 @@ func entities(ctx context.Context, root string, errCh chan<- error) <-chan FileD
 				return nil
 			}
 
-			select {
-			case paths <- FileData{path, info.IsDir()}:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
+			paths <- FileData{path, info.IsDir()}
 
 			return nil
 		})
@@ -58,6 +56,7 @@ func entities(ctx context.Context, root string, errCh chan<- error) <-chan FileD
 	return paths
 }
 
+//checksum calculates the checksum of the given file
 func checksum(file string) ([]byte, error) {
 	f, err := os.Open(file)
 	if err != nil {
@@ -72,6 +71,7 @@ func checksum(file string) ([]byte, error) {
 	return h.Sum(nil), nil
 }
 
+//createChecksumInfo calculates the checksum of the given FileData and coverts it into ChecksumInfo
 func createChecksumInfo(entity FileData) (ChecksumInfo, error) {
 	if entity.IsDir {
 		return ChecksumInfo{FileData: entity}, nil
@@ -88,8 +88,9 @@ func createChecksumInfo(entity FileData) (ChecksumInfo, error) {
 	}, nil
 }
 
-func streamChecksum(ctx context.Context, entities <-chan FileData, errCh chan<- error, root string) <-chan ChecksumInfo {
-	const numDigesters = 1
+//streamChecksum retrieves the entities, calculates their checksum and sends the checksum information through a channel
+func streamChecksum(entities <-chan FileData, errCh chan<- error, root string) <-chan ChecksumInfo {
+	const numDigesters = 50
 	checksumCh := make(chan ChecksumInfo)
 
 	var wg1 sync.WaitGroup

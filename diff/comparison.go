@@ -6,6 +6,7 @@ import (
 	"sync"
 )
 
+//SourceType defines whether the folder is a source or a target
 type SourceType int8
 
 const (
@@ -13,40 +14,38 @@ const (
 	Target
 )
 
+//SyncOperation declares what kind of process will be needed to sync the directories
 type SyncOperation int8
 
 const (
-	Copy SyncOperation = iota
+	Delete SyncOperation = iota
 	Create
-	Delete
+	Copy
 )
 
 func (o SyncOperation) String() string {
 	switch o {
-	case Copy:
-		return "copy"
-	case Create:
-		return "create"
 	case Delete:
 		return "delete"
+	case Create:
+		return "create"
+	case Copy:
+		return "copy"
 	default:
 		return fmt.Sprintf("%d", int(o))
 	}
 }
 
+//fileWithType is being used to distinct files from source and target paths
 type fileWithType struct {
 	Type SourceType
 	ChecksumInfo
 }
 
-type FileOperation struct {
-	Operation SyncOperation
-	FileData
-}
-
-func Compare(source <-chan ChecksumInfo, target <-chan ChecksumInfo, errCh chan<- error) []FileOperation {
+//Compare the files in the source and the target paths and return the determined operations in order to sync them
+func Compare(source <-chan ChecksumInfo, target <-chan ChecksumInfo) FileOps {
 	var smap sync.Map
-	fileOps := make([]FileOperation, 0)
+	fileOps := make(FileOps, 0)
 
 	fo1 := iterateFiles(source, &smap, Source)
 	fo2 := iterateFiles(target, &smap, Target)
@@ -80,6 +79,9 @@ func Compare(source <-chan ChecksumInfo, target <-chan ChecksumInfo, errCh chan<
 	return fileOps
 }
 
+//iterateFiles takes the data of the files and stores them into a thread safe map.
+//If there is a duplicate key of the map, compares the checksums to understand if the files is changed or not.
+//If the files is changed, removes it from the map and sends the copy operation in return.
 func iterateFiles(dc <-chan ChecksumInfo, smap *sync.Map, sourceType SourceType) <-chan FileOperation {
 	out := make(chan FileOperation)
 
@@ -110,6 +112,7 @@ func iterateFiles(dc <-chan ChecksumInfo, smap *sync.Map, sourceType SourceType)
 	return out
 }
 
+//merge the given channels into one
 func merge(cs ...<-chan FileOperation) <-chan FileOperation {
 	var wg sync.WaitGroup
 	out := make(chan FileOperation)
@@ -133,6 +136,7 @@ func merge(cs ...<-chan FileOperation) <-chan FileOperation {
 	return out
 }
 
+//PrintOperation prints the file operation to be applied in order to sync the files
 func PrintOperation(file string, method SyncOperation) {
 	fmt.Printf("%s `%s`\n", method.String(), file)
 }

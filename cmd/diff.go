@@ -29,10 +29,11 @@ var diffCmd = &cobra.Command{
 		ctx := context.Background()
 		ctx, cancel := context.WithCancel(ctx)
 
-		sourceChan := diff.ExecuteChecksum(ctx, res.Source(), errCh)
-		targetChan := diff.ExecuteChecksum(ctx, res.Target(), errCh)
+		sourceChan := diff.ExecuteChecksum(res.Source(), errCh)
+		targetChan := diff.ExecuteChecksum(res.Target(), errCh)
 
-		fileOps := diff.Compare(sourceChan, targetChan, errCh)
+		fileOps := diff.Compare(sourceChan, targetChan)
+		fileOps = fileOps.Transform()
 		for _, x := range fileOps {
 			diff.PrintOperation(x.Path, x.Operation)
 		}

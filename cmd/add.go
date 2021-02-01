@@ -41,6 +41,7 @@ func init() {
 	addCmd.Flags().StringVarP(&target, "target", "", "", "Target directory to read from.")
 }
 
+//addSource to the resource file
 func addSource() error {
 	if source == "" {
 		return nil
@@ -65,6 +66,7 @@ func addSource() error {
 	return nil
 }
 
+//addTarget to the resource file
 func addTarget() error {
 	if target == "" {
 		return nil

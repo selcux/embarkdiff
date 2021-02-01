@@ -2,6 +2,7 @@ package diff
 
 import "encoding/json"
 
+//resourceJson is an intermediate struct for marshalling the given source and the target paths
 type resourceJson struct {
 	Source string `json:"source"`
 	Target string `json:"target"`
