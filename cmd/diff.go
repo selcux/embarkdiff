@@ -1,8 +1,8 @@
 package cmd
 
 import (
+	"context"
 	"errors"
-
 	"github.com/selcux/embarkdiff/diff"
 	"github.com/spf13/cobra"
 )
@@ -23,18 +23,28 @@ var diffCmd = &cobra.Command{
 			return errors.New("`source` and `target` are required")
 		}
 
-		sourceChan, err := diff.ExecuteChecksum(res.Source())
-		if err != nil {
-			return err
+		errCh := make(chan error)
+		defer close(errCh)
+
+		ctx := context.Background()
+		ctx, cancel := context.WithCancel(ctx)
+
+		sourceChan := diff.ExecuteChecksum(ctx, res.Source(), errCh)
+		targetChan := diff.ExecuteChecksum(ctx, res.Target(), errCh)
+
+		fileOps := diff.Compare(sourceChan, targetChan, errCh)
+		for _, x := range fileOps {
+			diff.PrintOperation(x.Path, x.Operation)
 		}
 
-		targetChan, err := diff.ExecuteChecksum(res.Target())
-		if err != nil {
+		cancel()
+
+		select {
+		case <-ctx.Done():
+			break
+		case err = <-errCh:
 			return err
 		}
-
-		diff.Compare(&diff.DirWithChannel{sourceChan, res.Source()},
-			&diff.DirWithChannel{targetChan, res.Target()})
 
 		return nil
 	},

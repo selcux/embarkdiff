@@ -22,3 +22,9 @@ func DirExists(dir string) (bool, error) {
 
 	return !os.IsNotExist(err) && info.IsDir(), nil
 }
+
+/*
+func PathDepth(file string) int {
+	path.Base()
+}
+*/

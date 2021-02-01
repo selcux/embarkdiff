@@ -1,11 +1,8 @@
 package diff
 
 import (
+	"bytes"
 	"fmt"
-	"github.com/selcux/embarkdiff/util"
-	"log"
-	"path"
-	"path/filepath"
 	"sync"
 )
 
@@ -39,81 +36,103 @@ func (o SyncOperation) String() string {
 
 type fileWithType struct {
 	Type SourceType
-	checksumInfo
+	ChecksumInfo
 }
 
-type DirWithChannel struct {
-	Ch  <-chan checksumInfo
-	Dir string
+type FileOperation struct {
+	Operation SyncOperation
+	FileData
 }
 
-func Compare(source *DirWithChannel, target *DirWithChannel) {
+func Compare(source <-chan ChecksumInfo, target <-chan ChecksumInfo, errCh chan<- error) []FileOperation {
 	var smap sync.Map
-	var wg sync.WaitGroup
-	wg.Add(2)
+	fileOps := make([]FileOperation, 0)
 
-	go func() {
-		defer wg.Done()
-		iterateFiles(source, &smap, Source)
-	}()
+	fo1 := iterateFiles(source, &smap, Source)
+	fo2 := iterateFiles(target, &smap, Target)
 
-	go func() {
-		defer wg.Done()
-		iterateFiles(target, &smap, Target)
-	}()
+	for fo := range merge(fo1, fo2) {
+		fileOps = append(fileOps, fo)
+	}
 
-	wg.Wait()
-
-	smap.Range(func(key, value interface{}) bool {
-		file := key.(string)
+	smap.Range(func(_, value interface{}) bool {
 		fType := value.(fileWithType)
+		fo := FileOperation{
+			FileData: fType.FileData,
+		}
 
 		switch fType.Type {
 		case Source:
-			printOperation(file, Delete)
+			fo.Operation = Delete
 		case Target:
-			absPath := path.Join(target.Dir, file)
-			isDir, err := util.DirExists(absPath)
-			if err != nil {
-				log.Fatalln(err)
-			}
-
-			if isDir {
-				printOperation(file, Create)
+			if fType.IsDir {
+				fo.Operation = Create
 			} else {
-				printOperation(file, Copy)
+				fo.Operation = Copy
 			}
 		}
+
+		fileOps = append(fileOps, fo)
 
 		return true
 	})
+
+	return fileOps
 }
 
-func printOperation(file string, method SyncOperation) {
-	fmt.Printf("%s `%s`\n", method.String(), file)
-}
+func iterateFiles(dc <-chan ChecksumInfo, smap *sync.Map, sourceType SourceType) <-chan FileOperation {
+	out := make(chan FileOperation)
 
-func iterateFiles(dc *DirWithChannel, smap *sync.Map, sourceType SourceType) {
-	for pair := range dc.Ch {
-		file, err := filepath.Rel(dc.Dir, pair.file)
-		if err != nil {
-			log.Fatalln(err)
-		}
-		pair.file = file
+	go func() {
+		defer close(out)
 
-		fType := fileWithType{
-			Type:         sourceType,
-			checksumInfo: pair,
-		}
-
-		if actual, loaded := smap.LoadOrStore(pair.file, fType); loaded {
-			targetChecksum := actual.(fileWithType)
-
-			if targetChecksum.checksum != pair.checksum {
-				printOperation(pair.file, Copy)
+		for info := range dc {
+			fType := fileWithType{
+				Type:         sourceType,
+				ChecksumInfo: info,
 			}
 
-			smap.Delete(pair.file)
+			if actual, loaded := smap.LoadOrStore(info.Path, fType); loaded {
+				targetChecksum := actual.(fileWithType)
+
+				if bytes.Compare(targetChecksum.Checksum, info.Checksum) != 0 {
+					out <- FileOperation{
+						Operation: Copy,
+						FileData:  info.FileData,
+					}
+				}
+
+				smap.Delete(info.Path)
+			}
 		}
+	}()
+
+	return out
+}
+
+func merge(cs ...<-chan FileOperation) <-chan FileOperation {
+	var wg sync.WaitGroup
+	out := make(chan FileOperation)
+
+	output := func(c <-chan FileOperation) {
+		for n := range c {
+			out <- n
+		}
+		wg.Done()
 	}
+	wg.Add(len(cs))
+	for _, c := range cs {
+		go output(c)
+	}
+
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+
+	return out
+}
+
+func PrintOperation(file string, method SyncOperation) {
+	fmt.Printf("%s `%s`\n", method.String(), file)
 }
