@@ -28,17 +28,10 @@ var diffCmd = &cobra.Command{
 
 		ctx := context.Background()
 		ctx, cancel := context.WithCancel(ctx)
-
-		sourceChan := diff.ExecuteChecksum(res.Source(), errCh)
-		targetChan := diff.ExecuteChecksum(res.Target(), errCh)
-
-		fileOps := diff.Compare(sourceChan, targetChan)
-		fileOps = fileOps.Transform()
-		for _, x := range fileOps {
-			diff.PrintOperation(x.Path, x.Operation)
-		}
-
-		cancel()
+		go func() {
+			executeDiff(res.Source(), res.Target(), errCh)
+			cancel()
+		}()
 
 		select {
 		case <-ctx.Done():
@@ -53,4 +46,15 @@ var diffCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(diffCmd)
+}
+
+func executeDiff(source, target string, errCh chan<- error) {
+	sourceChan := diff.ExecuteChecksum(source, errCh)
+	targetChan := diff.ExecuteChecksum(target, errCh)
+
+	fileOps := diff.Compare(sourceChan, targetChan)
+	fileOps = fileOps.Transform()
+	for _, x := range fileOps {
+		diff.PrintOperation(x.Path, x.Operation)
+	}
 }
